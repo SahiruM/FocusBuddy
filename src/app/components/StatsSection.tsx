@@ -27,11 +27,24 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
 
   const today = new Date().toISOString().split('T')[0];
 
-  const last7Days = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (6 - i));
-    return date.toISOString().split('T')[0];
-  });
+  // ✅ MONDAY-BASED WEEK
+  const getMondayWeek = () => {
+    const today = new Date();
+    const day = today.getDay(); // 0 = Sunday
+
+    const diff = day === 0 ? -6 : 1 - day;
+
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + diff);
+
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      return d.toISOString().split('T')[0];
+    });
+  };
+
+  const weekDays = getMondayWeek();
 
   const last30Days = Array.from({ length: 30 }, (_, i) => {
     const date = new Date();
@@ -39,7 +52,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     return date.toISOString().split('T')[0];
   });
 
-  // ── FORMAT DURATION WITH MINUTES & SECONDS ─────────────────────
+  // ── FORMAT ─────────────────────────────
   const formatDuration = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -50,23 +63,16 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     return `${secs}s`;
   };
 
-  const formatShort = (seconds: number) => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    if (hrs > 0) return `${hrs}h ${mins}m`;
-    return `${mins}m`;
-  };
-
-  // ── TODAY & WEEK TOTALS ────────────────────────────────────────
+  // ── TOTALS ─────────────────────────────
   const dailyTime = studySessions
     .filter(s => s.date === today)
     .reduce((acc, s) => acc + s.duration, 0);
 
   const weeklyTime = studySessions
-    .filter(s => last7Days.includes(s.date))
+    .filter(s => weekDays.includes(s.date))
     .reduce((acc, s) => acc + s.duration, 0);
 
-  // ── CHART DATA ─────────────────────────────────────────────────
+  // ── CHART DATA ─────────────────────────
   const hourlyData = Array.from({ length: 24 }, (_, hour) => {
     const total = studySessions
       .filter(s => s.date === today && (s.hour ?? 0) === hour)
@@ -74,12 +80,13 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     return { name: `${hour}:00`, minutes: Math.round(total / 60) };
   });
 
-  const weeklyData = last7Days.map(date => {
+  const weeklyData = weekDays.map(date => {
     const total = studySessions
       .filter(s => s.date === date)
       .reduce((acc, s) => acc + s.duration, 0);
+
     return {
-      name: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
+      name: new Date(date).toLocaleDateString('en-GB', { weekday: 'short' }), // Mon-first style
       minutes: Math.round(total / 60),
     };
   });
@@ -88,20 +95,21 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     const total = studySessions
       .filter(s => s.date === date)
       .reduce((acc, s) => acc + s.duration, 0);
+
     return {
       name: new Date(date).getDate().toString(),
       minutes: Math.round(total / 60),
     };
   });
 
-  // ── PIE CHART DATA ─────────────────────────────────────────────
+  // ── PIE DATA ───────────────────────────
   const pieData = tasks.map(task => {
     let filtered = studySessions;
 
     if (pieRange === 'today') {
       filtered = studySessions.filter(s => s.taskId === task.id && s.date === today);
     } else if (pieRange === 'week') {
-      filtered = studySessions.filter(s => s.taskId === task.id && last7Days.includes(s.date));
+      filtered = studySessions.filter(s => s.taskId === task.id && weekDays.includes(s.date));
     } else {
       filtered = studySessions.filter(s => s.taskId === task.id);
     }
@@ -129,14 +137,14 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
   return (
     <div className="space-y-6">
 
-      {/* Today & This Week Cards */}
+      {/* Cards */}
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="bg-card border border-border rounded-3xl p-6">
           <div className="flex items-center gap-3 mb-3">
             <Sun className="w-5 h-5 text-yellow-500" />
             <h4 className="text-xl font-medium">Today</h4>
           </div>
-          <div className="text-4xl font-semibold mb-1">{formatDuration(dailyTime)}</div>
+          <div className="text-4xl font-semibold">{formatDuration(dailyTime)}</div>
         </div>
 
         <div className="bg-card border border-border rounded-3xl p-6">
@@ -144,11 +152,11 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
             <TrendingUp className="w-5 h-5 text-pink-500" />
             <h4 className="text-xl font-medium">This Week</h4>
           </div>
-          <div className="text-4xl font-semibold mb-1">{formatDuration(weeklyTime)}</div>
+          <div className="text-4xl font-semibold">{formatDuration(weeklyTime)}</div>
         </div>
       </div>
 
-      {/* Study Progress Charts */}
+      {/* Charts */}
       <div className="bg-card border border-border rounded-3xl p-6">
         <h4 className="text-xl mb-4">Study Progress</h4>
 
@@ -157,7 +165,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
             <button
               key={chart}
               onClick={() => setActiveChart(chart)}
-              className={`px-5 py-2 rounded-full text-sm font-medium transition-all border ${
+              className={`px-5 py-2 rounded-full border ${
                 activeChart === chart
                   ? 'bg-primary text-white border-primary'
                   : 'border-border hover:bg-secondary'
@@ -172,34 +180,34 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
           <ResponsiveContainer width="100%" height="100%">
             {activeChart === 'daily' ? (
               <AreaChart data={hourlyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="name" stroke="var(--muted-foreground)" />
-                <YAxis stroke="var(--muted-foreground)" />
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Area type="monotone" dataKey="minutes" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.3} />
               </AreaChart>
             ) : activeChart === 'weekly' ? (
               <BarChart data={weeklyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="name" stroke="var(--muted-foreground)" />
-                <YAxis stroke="var(--muted-foreground)" />
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Bar dataKey="minutes" fill="#a78bfa" radius={8} />
               </BarChart>
             ) : (
               <LineChart data={monthlyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="name" stroke="var(--muted-foreground)" />
-                <YAxis stroke="var(--muted-foreground)" />
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Line type="monotone" dataKey="minutes" stroke="#f472b6" strokeWidth={4} dot={{ r: 5 }} />
+                <Line type="monotone" dataKey="minutes" stroke="#f472b6" strokeWidth={4} />
               </LineChart>
             )}
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Pie Chart - Time per Subject */}
+      {/* Pie */}
       <div className="bg-card border border-border rounded-3xl p-6">
         <h4 className="text-xl mb-4">Time per Subject</h4>
 
@@ -208,7 +216,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
             <button
               key={range}
               onClick={() => setPieRange(range)}
-              className={`px-5 py-2 rounded-full text-sm font-medium transition-all border ${
+              className={`px-5 py-2 rounded-full border ${
                 pieRange === range
                   ? 'bg-primary text-white border-primary'
                   : 'border-border hover:bg-secondary'
@@ -220,24 +228,13 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
         </div>
 
         {pieData.length === 0 ? (
-          <p className="text-center py-16 text-muted-foreground">
-            No sessions recorded yet.
-          </p>
+          <p className="text-center py-16 text-muted-foreground">No sessions recorded yet.</p>
         ) : (
           <div className="grid md:grid-cols-2 gap-8 items-center">
-            {/* Pie */}
             <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer>
                 <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={70}
-                    outerRadius={110}
-                    dataKey="seconds"
-                    paddingAngle={4}
-                  >
+                  <Pie data={pieData} dataKey="seconds" innerRadius={70} outerRadius={110}>
                     {pieData.map((entry, idx) => (
                       <Cell key={idx} fill={entry.color} />
                     ))}
@@ -250,25 +247,22 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
               </ResponsiveContainer>
             </div>
 
-            {/* Legend with Minutes & Seconds */}
             <div className="space-y-4">
-              {pieData.map((subject) => {
+              {pieData.map(subject => {
                 const percent = totalStudySeconds > 0 
                   ? Math.round((subject.seconds / totalStudySeconds) * 100)
                   : 0;
 
                 return (
                   <div key={subject.name} className="flex items-center gap-4">
-                    <div className="w-5 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: subject.color }} />
+                    <div className="w-5 h-5 rounded-full" style={{ backgroundColor: subject.color }} />
                     <div className="flex-1">
                       <p className="font-medium">{subject.name}</p>
                       <p className="text-sm text-muted-foreground">
                         {formatDuration(subject.seconds)}
                       </p>
                     </div>
-                    <div className="text-right font-semibold text-lg">
-                      {percent}%
-                    </div>
+                    <div className="font-semibold">{percent}%</div>
                   </div>
                 );
               })}
