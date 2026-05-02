@@ -16,6 +16,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
+
 interface StatsSectionProps {
   studySessions: StudySession[];
   tasks: Task[];
@@ -82,6 +83,18 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     };
   });
 
+  // ── SUBJECT TOTALS (donut chart) ──────────────────────────────────────────
+  const subjectTotals = tasks.map(task => {
+    const total = studySessions
+      .filter(s => s.taskId === task.id)
+      .reduce((sum, s) => sum + s.duration, 0);
+    return {
+      name: task.name,
+      value: Math.round(total / 60),
+      color: task.color,
+    };
+  }).filter(s => s.value > 0);
+
   const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -96,38 +109,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     color: 'var(--foreground)',
     fontSize: '14px',
   };
-// Inside StatsSection, compute subject totals:
-const subjectTotals = tasks.map(task => {
-  const total = studySessions
-    .filter(s => s.taskId === task.id)
-    .reduce((sum, s) => sum + s.duration, 0);
-  return {
-    name: task.name,
-    value: Math.round(total / 60), // convert seconds → minutes
-    color: task.color,
-  };
-}).filter(s => s.value > 0);
 
-// Render:
-<ResponsiveContainer width="100%" height={240}>
-  <PieChart>
-    <Pie
-      data={subjectTotals}
-      cx="50%"
-      cy="50%"
-      innerRadius={60}
-      outerRadius={90}
-      paddingAngle={4}
-      dataKey="value"
-    >
-      {subjectTotals.map((entry, index) => (
-        <Cell key={index} fill={entry.color} />
-      ))}
-    </Pie>
-    <Tooltip formatter={(value: number) => `${value} min`} />
-    <Legend />
-  </PieChart>
-</ResponsiveContainer>
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* ── TODAY & THIS WEEK CARDS ── */}
@@ -163,7 +145,40 @@ const subjectTotals = tasks.map(task => {
         </div>
       </div>
 
-      {/* ── CHART ── */}
+      {/* ── SUBJECT BREAKDOWN DONUT CHART ── */}
+      <div className="bg-card border-2 border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-lg cute-shadow">
+        <h4 className="text-foreground text-xl mb-4">Subject Breakdown</h4>
+        {subjectTotals.length > 0 ? (
+          <ResponsiveContainer width="100%" height={240}>
+            <PieChart>
+              <Pie
+                data={subjectTotals}
+                cx="50%"
+                cy="50%"
+                innerRadius={60}
+                outerRadius={90}
+                paddingAngle={4}
+                dataKey="value"
+              >
+                {subjectTotals.map((entry, index) => (
+                  <Cell key={index} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip
+                contentStyle={tooltipStyle}
+                formatter={(value: number) => [`${value} min`, 'Study time']}
+              />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="text-center text-muted-foreground text-sm py-16">
+            No sessions yet — start studying to see your breakdown! 🧪
+          </p>
+        )}
+      </div>
+
+      {/* ── PROGRESS CHART ── */}
       <div className="bg-card border-2 border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-lg cute-shadow">
         <h4 className="text-foreground text-xl mb-4">Study Progress</h4>
 
