@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { doc, setDoc, getDoc, deleteDoc, addDoc, collection, onSnapshot, query, where, getDocs } from "firebase/firestore";
+import { doc, setDoc, getDoc, deleteDoc, addDoc, collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { Timer } from './Timer';
 import { TaskList } from './TaskList';
@@ -44,17 +44,12 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
   const [studySessions, setStudySessions] = useState<StudySession[]>([]);
   const [showCountdown, setShowCountdown] = useState(false);
   const [timerLoaded, setTimerLoaded] = useState(false);
+  const [tasksLoaded, setTasksLoaded] = useState(false);
 
   const startTimeRef = useRef<number | null>(null);
   const elapsedBeforePauseRef = useRef<number>(0);
-  const activeTaskIdRef = useRef<string | null>('1');
 
-  // keep ref in sync so handleStop always has latest taskId
-  useEffect(() => {
-    activeTaskIdRef.current = activeTaskId;
-  }, [activeTaskId]);
-
-  // ── VISIBILITY CHANGE (screen lock fix) ────────────────────────────────────
+  // ── VISIBILITY CHANGE (screen lock / tab switch fix) ───────────────────────
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && isStudying && !isPaused) {
@@ -68,31 +63,59 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isStudying, isPaused]);
 
-  // ── LOAD TASKS FROM FIRESTORE ───────────────────────────────────────────────
+  // ── LOAD TASKS FROM FIRESTORE (real-time) ──────────────────────────────────
+  // Using onSnapshot so task changes on one device instantly reflect on the other
   useEffect(() => {
     if (!userId) return;
-    const loadTasks = async () => {
-      const snap = await getDoc(doc(db, "userTasks", userId));
+    const taskDocRef = doc(db, "userTasks", userId);
+    const unsubscribe = onSnapshot(taskDocRef, async (snap) => {
       if (snap.exists()) {
-        setTasks(snap.data().tasks as Task[]);
+        const loadedTasks = snap.data().tasks as Task[];
+        setTasks(loadedTasks);
+        // If active task was deleted on another device, fall back to first task
+        setActiveTaskId(prev => {
+          if (prev && loadedTasks.find(t => t.id === prev)) return prev;
+          return loadedTasks[0]?.id ?? null;
+        });
+      } else {
+        // First time user — save defaults to Firestore
+        await setDoc(taskDocRef, { tasks: DEFAULT_TASKS });
+        setTasks(DEFAULT_TASKS);
+        setActiveTaskId('1');
       }
-    };
-    loadTasks();
+      setTasksLoaded(true);
+    });
+    return () => unsubscribe();
   }, [userId]);
 
-  // ── LOAD TIMER FROM FIRESTORE ───────────────────────────────────────────────
+  // ── LOAD TIMER FROM FIRESTORE (real-time) ──────────────────────────────────
+  // onSnapshot means if you start a timer on your phone, your laptop sees it instantly
   useEffect(() => {
     if (!userId) return;
-    const loadTimer = async () => {
-      const snap = await getDoc(doc(db, "timers", userId));
-      if (!snap.exists()) { setTimerLoaded(true); return; }
+    const timerDocRef = doc(db, "timers", userId);
+    const unsubscribe = onSnapshot(timerDocRef, (snap) => {
+      if (!snap.exists()) {
+        // Timer was deleted (stopped) on another device
+        startTimeRef.current = null;
+        elapsedBeforePauseRef.current = 0;
+        setIsStudying(false);
+        setIsPaused(false);
+        setElapsedTime(0);
+        setTimerLoaded(true);
+        return;
+      }
       const data = snap.data();
+
+      // Only sync state from Firestore if we're not the ones who just wrote it.
+      // We always update activeTaskId so both devices stay in sync.
       setActiveTaskId(data.taskId);
       setIsStudying(data.isRunning);
       setIsPaused(data.isPaused);
+
       if (data.isPaused) {
         elapsedBeforePauseRef.current = data.elapsedBeforePause;
         setElapsedTime(data.elapsedBeforePause);
+        startTimeRef.current = null;
       } else if (data.isRunning) {
         const now = Date.now();
         const elapsed = data.elapsedBeforePause + Math.floor((now - data.startTime) / 1000);
@@ -100,12 +123,13 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
         startTimeRef.current = data.startTime;
         setElapsedTime(elapsed);
       }
+
       setTimerLoaded(true);
-    };
-    loadTimer();
+    });
+    return () => unsubscribe();
   }, [userId]);
 
-  // ── LOAD SESSIONS FROM FIRESTORE ───────────────────────────────────────────
+  // ── LOAD SESSIONS FROM FIRESTORE (real-time) ───────────────────────────────
   useEffect(() => {
     if (!userId) return;
     const q = query(collection(db, "sessions"), where("userId", "==", userId));
@@ -137,17 +161,19 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
 
   // ── SAVE TASKS TO FIRESTORE ─────────────────────────────────────────────────
   const saveTasks = async (updatedTasks: Task[]) => {
+    if (!userId) return;
     await setDoc(doc(db, "userTasks", userId), { tasks: updatedTasks });
   };
 
   // ── SWITCH TASK WHILE TIMER RUNNING ────────────────────────────────────────
   const handleSelectTask = async (taskId: string) => {
-    if (isStudying && activeTaskIdRef.current && elapsedTime > 0) {
+    if (taskId === activeTaskId) return; // no-op if same task
+    if (isStudying && activeTaskId && elapsedTime > 0) {
       // Save current progress as a partial session before switching
       const now = new Date();
       await addDoc(collection(db, "sessions"), {
         userId,
-        taskId: activeTaskIdRef.current,
+        taskId: activeTaskId, // use state directly — no stale ref risk
         duration: elapsedTime,
         date: now.toISOString().split('T')[0],
         hour: now.getHours(),
@@ -158,8 +184,7 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
       startTimeRef.current = newNow;
       elapsedBeforePauseRef.current = 0;
       setElapsedTime(0);
-
-      // Update timer doc with new task
+      // Update Firestore timer with new task — other device picks this up via onSnapshot
       await setDoc(doc(db, "timers", userId), {
         taskId,
         isRunning: true,
@@ -173,6 +198,7 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
 
   // ── START ───────────────────────────────────────────────────────────────────
   const handleStart = async () => {
+    if (!activeTaskId) return;
     const now = Date.now();
     startTimeRef.current = now;
     elapsedBeforePauseRef.current = 0;
@@ -217,11 +243,11 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
 
   // ── STOP ────────────────────────────────────────────────────────────────────
   const handleStop = async () => {
-    if (isStudying && activeTaskIdRef.current && elapsedTime > 0) {
+    if (isStudying && activeTaskId && elapsedTime > 0) {
       const now = new Date();
       await addDoc(collection(db, "sessions"), {
         userId,
-        taskId: activeTaskIdRef.current,
+        taskId: activeTaskId, // read from state directly — no stale ref
         duration: elapsedTime,
         date: now.toISOString().split('T')[0],
         hour: now.getHours(),
@@ -238,7 +264,8 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
 
   // ── ADD TASK ────────────────────────────────────────────────────────────────
   const handleAddTask = async (taskName: string) => {
-    const colors = ['#9b87d6', '#a8d5ff', '#ffb3c6', '#b8e6d5', '#ffd4e5'];
+    if (!userId) return;
+    const colors = ['#9b87d6', '#a8d5ff', '#ffb3c6', '#b8e6d5', '#ffd4e5', '#c8f0b0', '#ffd7a0'];
     const newTask: Task = {
       id: Date.now().toString(),
       name: taskName,
@@ -251,20 +278,26 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
 
   // ── DELETE TASK ─────────────────────────────────────────────────────────────
   const handleDeleteTask = async (taskId: string) => {
+    if (!userId) return;
     const updated = tasks.filter(t => t.id !== taskId);
     setTasks(updated);
     await saveTasks(updated);
-    if (activeTaskId === taskId) setActiveTaskId(updated[0]?.id || null);
+    if (activeTaskId === taskId) {
+      setActiveTaskId(updated[0]?.id ?? null);
+    }
   };
 
   const activeTask = tasks.find(t => t.id === activeTaskId);
 
-  if (!timerLoaded) {
+  // Wait for both tasks and timer to load before rendering
+  if (!timerLoaded || !tasksLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="w-16 h-16 rounded-3xl mx-auto mb-4 animate-pulse"
-            style={{ background: 'linear-gradient(135deg, #ffb3c6 0%, #9b87d6 100%)' }} />
+          <div
+            className="w-16 h-16 rounded-3xl mx-auto mb-4 animate-pulse"
+            style={{ background: 'linear-gradient(135deg, #ffb3c6 0%, #9b87d6 100%)' }}
+          />
           <p className="text-muted-foreground">Loading your session... 💫</p>
         </div>
       </div>
@@ -273,9 +306,16 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
 
   return (
     <div className="min-h-screen bg-background relative">
-      <Header onLogout={onLogout} onShowLogin={onShowLogin} userName={userName} isLoggedIn={isLoggedIn} />
+      <Header
+        onLogout={onLogout}
+        onShowLogin={onShowLogin}
+        userName={userName}
+        isLoggedIn={isLoggedIn}
+      />
       <div className="container mx-auto px-4 sm:px-6 py-4 sm:py-6 max-w-7xl relative z-10">
         <div className="grid lg:grid-cols-[280px_1fr] xl:grid-cols-[320px_1fr] gap-4 sm:gap-6">
+
+          {/* LEFT COLUMN — Tasks + Countdown */}
           <div className="space-y-4 sm:space-y-6 lg:order-1 order-2">
             <TaskList
               tasks={tasks}
@@ -292,9 +332,17 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
                 {showCountdown ? 'Hide' : 'Show'} Countdown Timer
               </button>
             </div>
-            {(showCountdown || window.innerWidth >= 1024) && <CountdownTimer />}
+            <div className="hidden lg:block">
+              <CountdownTimer />
+            </div>
+            {showCountdown && (
+              <div className="lg:hidden">
+                <CountdownTimer />
+              </div>
+            )}
           </div>
 
+          {/* RIGHT COLUMN — Timer + Stats */}
           <div className="space-y-4 sm:space-y-6 lg:order-2 order-1">
             <Timer
               activeTask={activeTask}
@@ -308,6 +356,7 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
             />
             <StatsSection studySessions={studySessions} tasks={tasks} />
           </div>
+
         </div>
       </div>
     </div>
