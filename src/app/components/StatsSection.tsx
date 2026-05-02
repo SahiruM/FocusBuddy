@@ -24,44 +24,39 @@ interface StatsSectionProps {
 
 export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
   const [activeChart, setActiveChart] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+  const [pieRange, setPieRange] = useState<'today' | 'week' | 'alltime'>('week');
 
   const today = new Date().toISOString().split('T')[0];
 
-  // ── TODAY ──────────────────────────────────────────────────────────────────
-  const dailyTime = studySessions
-    .filter(s => s.date === today)
-    .reduce((acc, s) => acc + s.duration, 0);
-
-  // ── LAST 7 DAYS ────────────────────────────────────────────────────────────
   const last7Days = Array.from({ length: 7 }, (_, i) => {
     const date = new Date();
     date.setDate(date.getDate() - (6 - i));
     return date.toISOString().split('T')[0];
   });
 
-  const weeklyTime = studySessions
-    .filter(s => last7Days.includes(s.date))
-    .reduce((acc, s) => acc + s.duration, 0);
-
-  // ── LAST 30 DAYS ───────────────────────────────────────────────────────────
   const last30Days = Array.from({ length: 30 }, (_, i) => {
     const date = new Date();
     date.setDate(date.getDate() - (29 - i));
     return date.toISOString().split('T')[0];
   });
 
-  // ── DAILY CHART (hourly breakdown) ────────────────────────────────────────
+  // ── TODAY & WEEK TOTALS ───────────────────────────────────────────────────
+  const dailyTime = studySessions
+    .filter(s => s.date === today)
+    .reduce((acc, s) => acc + s.duration, 0);
+
+  const weeklyTime = studySessions
+    .filter(s => last7Days.includes(s.date))
+    .reduce((acc, s) => acc + s.duration, 0);
+
+  // ── CHART DATA ────────────────────────────────────────────────────────────
   const hourlyData = Array.from({ length: 24 }, (_, hour) => {
     const total = studySessions
       .filter(s => s.date === today && (s.hour ?? 0) === hour)
       .reduce((acc, s) => acc + s.duration, 0);
-    return {
-      name: `${hour}:00`,
-      minutes: Math.round(total / 60),
-    };
+    return { name: `${hour}:00`, minutes: Math.round(total / 60) };
   });
 
-  // ── WEEKLY CHART ──────────────────────────────────────────────────────────
   const weeklyData = last7Days.map(date => {
     const total = studySessions
       .filter(s => s.date === date)
@@ -72,7 +67,6 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     };
   });
 
-  // ── MONTHLY CHART ─────────────────────────────────────────────────────────
   const monthlyData = last30Days.map(date => {
     const total = studySessions
       .filter(s => s.date === date)
@@ -83,17 +77,19 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     };
   });
 
-  // ── SUBJECT TOTALS FOR PIE CHART ──────────────────────────────────────────
-  const subjectTotals = tasks.map(task => {
-    const total = studySessions
-      .filter(s => s.taskId === task.id)
-      .reduce((sum, s) => sum + s.duration, 0);
+  // ── PIE CHART DATA (filtered by range) ───────────────────────────────────
+  const pieData = tasks.map(task => {
+    const filtered = studySessions.filter(s => {
+      if (pieRange === 'today') return s.taskId === task.id && s.date === today;
+      if (pieRange === 'week') return s.taskId === task.id && last7Days.includes(s.date);
+      return s.taskId === task.id; // alltime
+    });
     return {
       name: task.name,
-      value: Math.round(total / 60),
+      minutes: Math.round(filtered.reduce((acc, s) => acc + s.duration, 0) / 60),
       color: task.color,
     };
-  }).filter(s => s.value > 0);
+  }).filter(d => d.minutes > 0);
 
   const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -112,6 +108,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+
       {/* ── TODAY & THIS WEEK CARDS ── */}
       <div className="grid sm:grid-cols-2 gap-3 sm:gap-4">
         <div className="bg-card border-2 border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-lg cute-shadow hover:translate-y-[-2px] transition-transform">
@@ -208,63 +205,92 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
         )}
       </div>
 
-      {/* ── SUBJECT BREAKDOWN ── */}
+      {/* ── PIE CHART: TIME PER SUBJECT ── */}
       <div className="bg-card border-2 border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-lg cute-shadow">
-        <h4 className="text-foreground text-xl mb-4">Subject Breakdown</h4>
+        <h4 className="text-foreground text-xl mb-4">Time per Subject</h4>
 
-        {subjectTotals.length === 0 ? (
-          <p className="text-center text-muted-foreground text-sm py-8">
-            No sessions yet — start studying to see your breakdown! 🧪
+        <div className="flex gap-2 mb-4 flex-wrap">
+          {(['today', 'week', 'alltime'] as const).map(range => (
+            <button
+              key={range}
+              onClick={() => setPieRange(range)}
+              className={`px-4 py-2 rounded-full transition-all border-2 ${
+                pieRange === range
+                  ? 'bg-primary text-white border-primary'
+                  : 'bg-secondary/50 text-foreground border-border hover:bg-secondary'
+              }`}
+            >
+              {range === 'today' ? 'Today' : range === 'week' ? 'This Week' : 'All Time'}
+            </button>
+          ))}
+        </div>
+
+        {pieData.length === 0 ? (
+          <p className="text-center text-muted-foreground text-sm py-16">
+            No sessions yet for this period — start studying! 🧪
           </p>
         ) : (
           <>
-            <div className="h-48 sm:h-56">
+            <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={subjectTotals}
+                    data={pieData}
                     cx="50%"
                     cy="50%"
-                    innerRadius={55}
-                    outerRadius={85}
+                    innerRadius={60}
+                    outerRadius={90}
                     paddingAngle={4}
-                    dataKey="value"
+                    dataKey="minutes"
+                    label={({ name, percent }) =>
+                      `${name} ${(percent * 100).toFixed(0)}%`
+                    }
+                    labelLine={false}
                   >
-                    {subjectTotals.map((entry, index) => (
+                    {pieData.map((entry, index) => (
                       <Cell key={index} fill={entry.color} />
                     ))}
                   </Pie>
                   <Tooltip
                     contentStyle={tooltipStyle}
-                    formatter={(v) => [`${v} min`, 'Study time']}
+                    formatter={(v) => [`${v}m`, 'Study time']}
                   />
-                  <Legend />
+                  <Legend
+                    formatter={(value) => (
+                      <span style={{ color: 'var(--foreground)', fontSize: '14px' }}>
+                        {value}
+                      </span>
+                    )}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </div>
 
-            {/* Subject rows with time */}
+            {/* ── SUBJECT BREAKDOWN LIST ── */}
             <div className="mt-4 space-y-2">
-              {subjectTotals.map(subject => (
-                <div key={subject.name} className="flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ background: subject.color }}
-                    />
-                    <span className="text-sm text-foreground">{subject.name}</span>
+              {pieData.map(subject => {
+                const total = pieData.reduce((acc, s) => acc + s.minutes, 0);
+                const pct = total > 0 ? Math.round((subject.minutes / total) * 100) : 0;
+                return (
+                  <div key={subject.name} className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: subject.color }} />
+                    <span className="text-sm text-foreground flex-1">{subject.name}</span>
+                    <span className="text-sm text-muted-foreground">{subject.minutes}m</span>
+                    <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, backgroundColor: subject.color }}
+                      />
+                    </div>
+                    <span className="text-xs text-muted-foreground w-8 text-right">{pct}%</span>
                   </div>
-                  <span className="text-sm text-muted-foreground">
-                    {subject.value >= 60
-                      ? `${Math.floor(subject.value / 60)}h ${subject.value % 60}m`
-                      : `${subject.value}m`}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
       </div>
+
     </div>
   );
 }
