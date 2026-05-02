@@ -83,7 +83,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     };
   });
 
-  // ── SUBJECT TOTALS (donut chart) ──────────────────────────────────────────
+  // ── SUBJECT TOTALS FOR PIE CHART ──────────────────────────────────────────
   const subjectTotals = tasks.map(task => {
     const total = studySessions
       .filter(s => s.taskId === task.id)
@@ -145,40 +145,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
         </div>
       </div>
 
-      {/* ── SUBJECT BREAKDOWN DONUT CHART ── */}
-      <div className="bg-card border-2 border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-lg cute-shadow">
-        <h4 className="text-foreground text-xl mb-4">Subject Breakdown</h4>
-        {subjectTotals.length > 0 ? (
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie
-                data={subjectTotals}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={90}
-                paddingAngle={4}
-                dataKey="value"
-              >
-                {subjectTotals.map((entry, index) => (
-                  <Cell key={index} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={tooltipStyle}
-                formatter={(value: number) => [`${value} min`, 'Study time']}
-              />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        ) : (
-          <p className="text-center text-muted-foreground text-sm py-16">
-            No sessions yet — start studying to see your breakdown! 🧪
-          </p>
-        )}
-      </div>
-
-      {/* ── PROGRESS CHART ── */}
+      {/* ── STUDY PROGRESS CHART ── */}
       <div className="bg-card border-2 border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-lg cute-shadow">
         <h4 className="text-foreground text-xl mb-4">Study Progress</h4>
 
@@ -238,6 +205,64 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
           <p className="text-center text-muted-foreground text-sm mt-4">
             No sessions yet — start studying to see your progress! 📚
           </p>
+        )}
+      </div>
+
+      {/* ── SUBJECT BREAKDOWN ── */}
+      <div className="bg-card border-2 border-border rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-lg cute-shadow">
+        <h4 className="text-foreground text-xl mb-4">Subject Breakdown</h4>
+
+        {subjectTotals.length === 0 ? (
+          <p className="text-center text-muted-foreground text-sm py-8">
+            No sessions yet — start studying to see your breakdown! 🧪
+          </p>
+        ) : (
+          <>
+            <div className="h-48 sm:h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={subjectTotals}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={85}
+                    paddingAngle={4}
+                    dataKey="value"
+                  >
+                    {subjectTotals.map((entry, index) => (
+                      <Cell key={index} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    formatter={(v) => [`${v} min`, 'Study time']}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Subject rows with time */}
+            <div className="mt-4 space-y-2">
+              {subjectTotals.map(subject => (
+                <div key={subject.name} className="flex items-center justify-between px-1">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ background: subject.color }}
+                    />
+                    <span className="text-sm text-foreground">{subject.name}</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    {subject.value >= 60
+                      ? `${Math.floor(subject.value / 60)}h ${subject.value % 60}m`
+                      : `${subject.value}m`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
