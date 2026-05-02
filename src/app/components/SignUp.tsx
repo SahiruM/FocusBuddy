@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Heart, Mail, Lock, User, Sparkles } from 'lucide-react';
+import { Heart, Mail, Lock, User, Sparkles, Eye, EyeOff } from 'lucide-react';
 
 interface SignUpProps {
   onSignUp: (name: string, email: string, password: string) => Promise<void>;
@@ -12,6 +12,9 @@ export function SignUp({ onSignUp, onSwitchToLogin }: SignUpProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -19,33 +22,27 @@ export function SignUp({ onSignUp, onSwitchToLogin }: SignUpProps) {
     e.preventDefault();
     setError('');
 
-    if (password !== confirmPassword) {
-      setError('Passwords do not match!');
-      return;
-    }
+    if (!name.trim()) return setError('Please enter your name');
+    if (!email.trim()) return setError('Please enter your email');
+    if (password.length < 6) return setError('Password must be at least 6 characters');
+    if (password !== confirmPassword) return setError('Passwords do not match!');
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters!');
-      return;
-    }
+    setLoading(true);
 
-    if (name && email && password) {
-      setLoading(true);
-      try {
-        await onSignUp(name, email, password);
-      } catch (err: any) {
-        if (err.code === 'auth/email-already-in-use') {
-          setError('Email already in use!');
-        } else if (err.code === 'auth/weak-password') {
-          setError('Password is too weak!');
-        } else if (err.code === 'auth/invalid-email') {
-          setError('Invalid email address!');
-        } else {
-          setError('Something went wrong. Please try again.');
-        }
-      } finally {
-        setLoading(false);
+    try {
+      await onSignUp(name.trim(), email.trim(), password);
+    } catch (err: any) {
+      if (err.code === 'auth/email-already-in-use') {
+        setError('This email is already registered.');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Please enter a valid email address.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password is too weak. Please choose a stronger one.');
+      } else {
+        setError('Failed to create account. Please try again.');
       }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -58,9 +55,6 @@ export function SignUp({ onSignUp, onSwitchToLogin }: SignUpProps) {
         <svg className="absolute bottom-20 left-20 w-40 h-40 text-lavender animate-bounce-soft" viewBox="0 0 100 100" fill="currentColor">
           <path d="M50,30 L55,40 L65,40 L57,47 L60,57 L50,50 L40,57 L43,47 L35,40 L45,40 Z" />
         </svg>
-        <svg className="absolute top-1/3 right-10 w-24 h-24 text-light-blue animate-wiggle" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="25" fill="none" stroke="currentColor" strokeWidth="3" />
-        </svg>
       </div>
 
       <motion.div
@@ -71,13 +65,13 @@ export function SignUp({ onSignUp, onSwitchToLogin }: SignUpProps) {
         <div className="text-center mb-8">
           <motion.div
             animate={{ rotate: [0, -10, 10, 0] }}
-            transition={{ duration: 2, repeat: Infinity }}
+            transition={{ duration: 2.5, repeat: Infinity }}
             className="inline-flex items-center justify-center w-20 h-20 rounded-3xl mb-4 shadow-lg"
             style={{ background: 'linear-gradient(135deg, #ffb3c6 0%, #9b87d6 100%)' }}
           >
             <Heart className="w-10 h-10 text-white fill-white" />
           </motion.div>
-          <h1 className="text-4xl mb-2 text-foreground">Join FocusFlow</h1>
+          <h1 className="text-4xl font-semibold mb-2 text-foreground">Join FocusFlow</h1>
           <p className="text-muted-foreground flex items-center justify-center gap-2">
             <Sparkles className="w-4 h-4" style={{ color: 'var(--soft-pink)' }} />
             Let's start your study journey! 💖
@@ -90,17 +84,17 @@ export function SignUp({ onSignUp, onSwitchToLogin }: SignUpProps) {
           transition={{ delay: 0.1 }}
           className="bg-card border-2 border-border rounded-3xl p-8 shadow-lg cute-shadow"
         >
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="block text-sm mb-2 text-foreground flex items-center gap-2">
                 <User className="w-4 h-4" style={{ color: 'var(--soft-pink)' }} />
-                Name
+                Full Name
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Your name"
+                placeholder="Alex Chen"
                 required
                 disabled={loading}
                 className="w-full px-4 py-3 rounded-xl bg-input-background border-2 border-border text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground disabled:opacity-50"
@@ -110,13 +104,13 @@ export function SignUp({ onSignUp, onSwitchToLogin }: SignUpProps) {
             <div>
               <label className="block text-sm mb-2 text-foreground flex items-center gap-2">
                 <Mail className="w-4 h-4" style={{ color: 'var(--soft-pink)' }} />
-                Email
+                Email Address
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
+                placeholder="you@example.com"
                 required
                 disabled={loading}
                 className="w-full px-4 py-3 rounded-xl bg-input-background border-2 border-border text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground disabled:opacity-50"
@@ -128,15 +122,24 @@ export function SignUp({ onSignUp, onSwitchToLogin }: SignUpProps) {
                 <Lock className="w-4 h-4" style={{ color: 'var(--soft-pink)' }} />
                 Password
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                disabled={loading}
-                className="w-full px-4 py-3 rounded-xl bg-input-background border-2 border-border text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground disabled:opacity-50"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  disabled={loading}
+                  className="w-full px-4 py-3 rounded-xl bg-input-background border-2 border-border text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
             </div>
 
             <div>
@@ -144,36 +147,45 @@ export function SignUp({ onSignUp, onSwitchToLogin }: SignUpProps) {
                 <Lock className="w-4 h-4" style={{ color: 'var(--soft-pink)' }} />
                 Confirm Password
               </label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                disabled={loading}
-                className="w-full px-4 py-3 rounded-xl bg-input-background border-2 border-border text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground disabled:opacity-50"
-              />
+              <div className="relative">
+                <input
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  disabled={loading}
+                  className="w-full px-4 py-3 rounded-xl bg-input-background border-2 border-border text-foreground outline-none focus:border-primary transition-colors placeholder:text-muted-foreground disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
             </div>
 
             {error && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="px-4 py-3 rounded-xl bg-destructive/10 border-2 border-destructive/30"
+                className="px-4 py-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm"
               >
-                <p className="text-sm text-destructive">{error}</p>
+                {error}
               </motion.div>
             )}
 
             <motion.button
-              whileHover={{ scale: loading ? 1 : 1.02, rotate: loading ? 0 : 1 }}
+              whileHover={{ scale: loading ? 1 : 1.02 }}
               whileTap={{ scale: loading ? 1 : 0.98 }}
               type="submit"
               disabled={loading}
-              className="w-full py-4 rounded-2xl text-white shadow-md border-2 border-transparent hover:border-white/30 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+              className="w-full py-4 rounded-2xl text-white font-medium shadow-md border-2 border-transparent hover:border-white/30 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
               style={{ background: 'linear-gradient(135deg, #ffb3c6 0%, #9b87d6 100%)' }}
             >
-              {loading ? 'Creating account...' : 'Sign Up 🎉'}
+              {loading ? 'Creating account...' : 'Create Account 🎉'}
             </motion.button>
           </form>
 
@@ -183,7 +195,7 @@ export function SignUp({ onSignUp, onSwitchToLogin }: SignUpProps) {
               <button
                 onClick={onSwitchToLogin}
                 disabled={loading}
-                className="text-primary hover:underline transition-all disabled:opacity-50"
+                className="text-primary hover:underline font-medium transition-all"
               >
                 Login here
               </button>

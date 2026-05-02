@@ -1,6 +1,15 @@
 import { useState, useEffect } from 'react';
-import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+  type User,
+} from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
+
 import { Login } from './components/Login';
 import { SignUp } from './components/SignUp';
 import { MainApp } from './components/MainApp';
@@ -10,7 +19,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Firebase automatically remembers the user — no localStorage needed
+  // Listen to auth state
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
@@ -22,32 +31,53 @@ export default function App() {
       }
     });
 
-    return () => unsubscribe(); // cleanup on unmount
+    return () => unsubscribe();
   }, []);
 
-  const handleLogin = async (email: string, password: string) => {
-    // actual Firebase login is handled inside Login.tsx's try/catch
-    // Firebase's onAuthStateChanged above will automatically update user state
+  // ==================== SIGN UP ====================
+  const handleSignUp = async (name: string, email: string, password: string) => {
+    try {
+      const { user } = await createUserWithEmailAndPassword(auth, email, password);
+
+      // Update display name
+      await updateProfile(user, { displayName: name });
+
+      // Save user data to Firestore
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        name: name,
+        email: email,
+        createdAt: new Date().toISOString(),
+      });
+
+      console.log("✅ Signup successful!");
+    } catch (error: any) {
+      console.error("Signup error:", error);
+      throw error;   // This allows SignUp component to show the error
+    }
   };
 
-  const handleSignUp = async (name: string, email: string, password: string) => {
-    // actual Firebase signup is handled inside SignUp.tsx's try/catch
-    // Firebase's onAuthStateChanged above will automatically update user state
+  // ==================== LOGIN ====================
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      console.log("✅ Login successful!");
+    } catch (error: any) {
+      console.error("Login error:", error);
+      throw error;   // This allows Login component to show the error
+    }
   };
 
   const handleLogout = async () => {
     await signOut(auth);
-    // onAuthStateChanged will automatically set user to null and switch to login
   };
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div
-            className="w-16 h-16 rounded-3xl mx-auto mb-4 animate-pulse"
-            style={{ background: 'linear-gradient(135deg, #ffb3c6 0%, #9b87d6 100%)' }}
-          />
+          <div className="w-16 h-16 rounded-3xl mx-auto mb-4 animate-pulse"
+               style={{ background: 'linear-gradient(135deg, #ffb3c6 0%, #9b87d6 100%)' }} />
           <p className="text-muted-foreground">Loading... 💫</p>
         </div>
       </div>
@@ -55,30 +85,20 @@ export default function App() {
   }
 
   if (currentView === 'login') {
-    return (
-      <Login
-        onLogin={handleLogin}
-        onSwitchToSignup={() => setCurrentView('signup')}
-      />
-    );
+    return <Login onLogin={handleLogin} onSwitchToSignup={() => setCurrentView('signup')} />;
   }
 
   if (currentView === 'signup') {
-    return (
-      <SignUp
-        onSignUp={handleSignUp}
-        onSwitchToLogin={() => setCurrentView('login')}
-      />
-    );
+    return <SignUp onSignUp={handleSignUp} onSwitchToLogin={() => setCurrentView('login')} />;
   }
 
-return (
-  <MainApp
-    userName={user?.displayName || 'Suu'}
-    userId={user?.uid || ''}   // ← this MUST be user.uid, not the name
-    onLogout={user ? handleLogout : undefined}
-    onShowLogin={!user ? () => setCurrentView('login') : undefined}
-    isLoggedIn={!!user}
-  />
-);
+  return (
+    <MainApp
+      userName={user?.displayName || 'Suu'}
+      userId={user?.uid || ''}
+      onLogout={handleLogout}
+      onShowLogin={undefined}
+      isLoggedIn={!!user}
+    />
+  );
 }
