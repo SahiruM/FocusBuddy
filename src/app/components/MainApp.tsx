@@ -104,19 +104,39 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
 
   // ─── LOCAL TIMER ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!timerLoaded) return;
-    let interval: NodeJS.Timeout | undefined;
+  if (!timerLoaded) return;
 
-    if (isStudying && !isPaused) {
-      interval = setInterval(() => {
-        setElapsedTime(prev => prev + 1);
-      }, 1000);
+  const update = () => {
+    setElapsedTime(calculateElapsed());
+  };
+
+  update(); // immediate sync
+
+  const interval = setInterval(update, 1000);
+
+  return () => clearInterval(interval);
+}, [isStudying, isPaused, timerLoaded]);
+const calculateElapsed = () => {
+  if (!isStudying) return elapsedBeforePauseRef.current;
+
+  if (isPaused) return elapsedBeforePauseRef.current;
+
+  if (!startTimeRef.current) return elapsedTime;
+
+  const now = Date.now();
+  return elapsedBeforePauseRef.current + Math.floor((now - startTimeRef.current) / 1000);
+};
+useEffect(() => {
+  const handleVisibilityChange = () => {
+    if (!document.hidden) {
+      setElapsedTime(calculateElapsed());
     }
+  };
 
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isStudying, isPaused, timerLoaded]);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  return () =>
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+}, [isStudying, isPaused]);
 
   // ─── AUTO SYNC TO FIREBASE ───────────────────────────────────────
   useEffect(() => {
