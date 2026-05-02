@@ -35,7 +35,7 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
   const [tasks, setTasks] = useState<Task[]>([
     { id: '1', name: 'Bio', color: '#9b87d6' },
     { id: '2', name: 'Physics', color: '#a8d5ff' },
-    { id: '3', name: 'Papers', color: '#ffb3c6' },
+    { id: '3', name: 'Chem', color: '#ffb3c6' },
   ]);
 
   const [activeTaskId, setActiveTaskId] = useState<string | null>('1');
