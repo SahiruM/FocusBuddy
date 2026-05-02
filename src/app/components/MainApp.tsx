@@ -35,7 +35,7 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
   const [tasks, setTasks] = useState<Task[]>([
     { id: '1', name: 'Bio', color: '#9b87d6' },
     { id: '2', name: 'Physics', color: '#a8d5ff' },
-    { id: '3', name: 'Chem', color: '#ffb3c6' },
+    { id: '3', name: 'Papers', color: '#ffb3c6' },
   ]);
 
   const [activeTaskId, setActiveTaskId] = useState<string | null>('1');
@@ -274,133 +274,130 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
 
 {/* ==================== FULL SCREEN TIMER ==================== */}
 {isFullScreen && (
-  <div className="fixed inset-0 bg-zinc-950 z-[100] flex items-center justify-center p-4 sm:p-6">
-    <div 
-      className="w-full max-w-4xl rounded-3xl p-6 sm:p-10 md:p-14 border border-border shadow-2xl relative overflow-hidden"
+  <div className="fixed inset-0 z-[100] bg-zinc-950 flex items-center justify-center">
+
+    {/* BACKDROP GLOW (THEME BASED) */}
+    <div
+      className="absolute inset-0 opacity-40 blur-3xl"
       style={{
-        background: isStudying
-          ? `linear-gradient(135deg, ${activeTask?.color}12 0%, ${activeTask?.color}03 100%)`
-          : 'var(--card)',
+        background: activeTask?.color
+          ? `radial-gradient(circle at 50% 40%, ${activeTask.color}55 0%, transparent 65%)`
+          : 'radial-gradient(circle at 50% 40%, rgba(255,255,255,0.08), transparent 65%)',
       }}
+    />
+
+    {/* 🛑 MOBILE SAFE EXIT (always visible + thumb reachable) */}
+    <button
+      onClick={toggleFullScreenTimer}
+      className="fixed top-4 right-4 z-[120] px-4 py-2 rounded-xl bg-black/50 backdrop-blur border border-white/10 text-white text-sm active:scale-95"
     >
-      {/* Soft Glow (less aggressive) */}
-      {isStudying && (
-        <motion.div
-          className="absolute inset-0 rounded-3xl pointer-events-none"
-          style={{
-            background: `radial-gradient(circle at 50% 50%, ${activeTask?.color}18 0%, transparent 70%)`
-          }}
-          animate={{ scale: [1, 1.05, 1], opacity: [0.4, 0.6, 0.4] }}
-          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-        />
-      )}
+      Exit
+    </button>
+{/* AESTHETIC BACKGROUND LAYERS */}
+<div className="absolute inset-0 overflow-hidden">
 
-      <div className="relative z-10 text-center flex flex-col items-center">
-        
-        {/* Active Task */}
-        {activeTask && (
-          <div className="mb-6 px-4 py-2 rounded-full border border-border bg-background/60 backdrop-blur flex items-center gap-2">
-            <div 
-              className="w-3 h-3 rounded-full" 
-              style={{ backgroundColor: activeTask.color }} 
-            />
-            <span className="text-base sm:text-lg font-medium">
-              {activeTask.name}
-            </span>
-          </div>
-        )}
+  {/* Floating gradient blobs */}
+  <div className="absolute -top-32 -left-32 w-[400px] h-[400px] rounded-full blur-3xl opacity-30 animate-float-slow"
+    style={{ background: activeTask?.color || '#a8d5ff' }}
+  />
 
-        {/* TIMER */}
-        <div className="mb-8 sm:mb-10 w-full">
-          <div className="font-mono font-bold tracking-tight tabular-nums leading-none
-            text-[64px] sm:text-[110px] md:text-[150px] lg:text-[180px]">
-            
-            {Math.floor(elapsedTime / 3600).toString().padStart(2, '0')}:
-            {Math.floor((elapsedTime % 3600) / 60).toString().padStart(2, '0')}:
-            {(elapsedTime % 60).toString().padStart(2, '0')}
-          </div>
-        </div>
+  <div className="absolute top-1/2 -right-40 w-[500px] h-[500px] rounded-full blur-3xl opacity-20 animate-float-medium"
+    style={{ background: '#ffb3c6' }}
+  />
 
-        {/* STATUS */}
-        <div className="flex items-center gap-3 mb-8 sm:mb-10">
+  <div className="absolute bottom-[-200px] left-1/3 w-[450px] h-[450px] rounded-full blur-3xl opacity-20 animate-float-slow"
+    style={{ background: '#b8e6d5' }}
+  />
+
+  {/* Soft noise overlay */}
+  <div className="absolute inset-0 opacity-[0.03] mix-blend-overlay bg-[url('/noise.png')]" />
+</div>
+    {/* MAIN TIMER CARD */}
+    <div className="relative w-full max-w-3xl mx-4 text-center">
+
+      {/* TASK LABEL */}
+      {activeTask && (
+        <div className="mb-6 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur">
           <div
-            className={`w-3 h-3 rounded-full ${
-              isStudying && !isPaused ? 'animate-pulse' : ''
-            }`}
-            style={{
-              backgroundColor: isStudying && !isPaused
-                ? 'var(--soft-green)'
-                : isPaused
-                ? 'var(--chart-4)'
-                : 'var(--muted-foreground)',
-            }}
+            className="w-3 h-3 rounded-full"
+            style={{ backgroundColor: activeTask.color }}
           />
-          <span className="text-lg sm:text-xl text-muted-foreground">
-            {isStudying ? (isPaused ? 'Paused' : 'Studying') : 'Ready'}
+          <span className="text-white/80 text-sm sm:text-base">
+            {activeTask.name}
           </span>
         </div>
+      )}
 
-        {/* BUTTONS */}
-        <div className="flex flex-wrap gap-3 sm:gap-4 justify-center w-full">
-          {!isStudying ? (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleStart}
-              className="px-6 sm:px-10 py-4 sm:py-5 rounded-2xl flex items-center gap-2 sm:gap-3 text-lg sm:text-xl font-medium shadow-md"
-              style={{ background: 'var(--soft-green)', color: '#fff' }}
-            >
-              <Play className="w-5 h-5 sm:w-6 sm:h-6" />
-              Start
-            </motion.button>
-          ) : (
-            <>
-              {isPaused ? (
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleResume}
-                  className="px-6 sm:px-10 py-4 sm:py-5 rounded-2xl flex items-center gap-2 sm:gap-3 text-lg sm:text-xl font-medium shadow-md"
-                  style={{ background: 'var(--soft-green)', color: '#fff' }}
-                >
-                  <Play className="w-5 h-5 sm:w-6 sm:h-6" />
-                  Resume
-                </motion.button>
-              ) : (
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handlePause}
-                  className="px-6 sm:px-10 py-4 sm:py-5 rounded-2xl flex items-center gap-2 sm:gap-3 text-lg sm:text-xl font-medium shadow-md"
-                  style={{ background: 'var(--chart-4)', color: '#fff' }}
-                >
-                  <Pause className="w-5 h-5 sm:w-6 sm:h-6" />
-                  Pause
-                </motion.button>
-              )}
+      {/* TIMER DISPLAY */}
+      <div className="font-mono font-bold text-white tabular-nums leading-none
+        text-[64px] sm:text-[120px] md:text-[150px]">
 
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleStop}
-                className="px-6 sm:px-10 py-4 sm:py-5 rounded-2xl flex items-center gap-2 sm:gap-3 text-lg sm:text-xl font-medium shadow-md"
-                style={{ background: 'var(--soft-red)', color: '#fff' }}
-              >
-                <Square className="w-5 h-5 sm:w-6 sm:h-6" />
-                Stop & Save
-              </motion.button>
-            </>
-          )}
+        {Math.floor(elapsedTime / 3600).toString().padStart(2, '0')}:
+        {Math.floor((elapsedTime % 3600) / 60).toString().padStart(2, '0')}:
+        {(elapsedTime % 60).toString().padStart(2, '0')}
+      </div>
 
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={toggleFullScreenTimer}
-            className="px-6 sm:px-8 py-4 sm:py-5 rounded-2xl flex items-center gap-2 text-lg sm:text-xl font-medium border border-border hover:bg-accent"
+      {/* STATUS */}
+      <div className="mt-6 flex items-center justify-center gap-2 text-white/60">
+        <div
+          className={`w-2.5 h-2.5 rounded-full ${
+            isStudying && !isPaused ? 'animate-pulse' : ''
+          }`}
+          style={{
+            backgroundColor:
+              isStudying && !isPaused
+                ? activeTask?.color || '#fff'
+                : '#777',
+          }}
+        />
+        <span className="text-sm sm:text-base">
+          {isStudying ? (isPaused ? 'Paused' : 'Focused') : 'Ready'}
+        </span>
+      </div>
+
+      {/* CONTROLS */}
+      <div className="mt-10 flex flex-wrap justify-center gap-3">
+
+        {!isStudying ? (
+          <button
+            onClick={handleStart}
+            className="px-7 py-3 rounded-2xl text-white font-medium active:scale-95 shadow-lg"
+            style={{ background: activeTask?.color || '#22c55e' }}
           >
-            Exit
-          </motion.button>
-        </div>
+            Start
+          </button>
+        ) : (
+          <>
+            {isPaused ? (
+              <button
+                onClick={handleResume}
+                className="px-7 py-3 rounded-2xl text-white font-medium active:scale-95"
+                style={{ background: activeTask?.color || '#22c55e' }}
+              >
+                Resume
+              </button>
+            ) : (
+              <button
+                onClick={handlePause}
+                className="px-7 py-3 rounded-2xl text-white font-medium active:scale-95 bg-yellow-500"
+              >
+                Pause
+              </button>
+            )}
+
+            <button
+              onClick={handleStop}
+              className="px-7 py-3 rounded-2xl text-white font-medium active:scale-95 bg-red-500"
+            >
+              Stop & Save
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* 🧠 MOBILE SAFETY HINT (VERY IMPORTANT UX FIX) */}
+      <div className="mt-8 text-white/30 text-xs sm:text-sm">
+        Tip: tap “Exit” anytime to leave focus mode
       </div>
     </div>
   </div>
