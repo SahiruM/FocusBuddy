@@ -1,8 +1,21 @@
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Line, LineChart, Area, AreaChart } from 'recharts';
 import { TrendingUp, Sun } from 'lucide-react';
 import { useState } from 'react';
 import type { StudySession, Task } from './MainApp';
-
+import {
+  BarChart, Bar,
+  XAxis, YAxis,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  Line,
+  LineChart,
+  Area,
+  AreaChart,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from 'recharts';
 interface StatsSectionProps {
   studySessions: StudySession[];
   tasks: Task[];
@@ -83,7 +96,38 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     color: 'var(--foreground)',
     fontSize: '14px',
   };
+// Inside StatsSection, compute subject totals:
+const subjectTotals = tasks.map(task => {
+  const total = studySessions
+    .filter(s => s.taskId === task.id)
+    .reduce((sum, s) => sum + s.duration, 0);
+  return {
+    name: task.name,
+    value: Math.round(total / 60), // convert seconds → minutes
+    color: task.color,
+  };
+}).filter(s => s.value > 0);
 
+// Render:
+<ResponsiveContainer width="100%" height={240}>
+  <PieChart>
+    <Pie
+      data={subjectTotals}
+      cx="50%"
+      cy="50%"
+      innerRadius={60}
+      outerRadius={90}
+      paddingAngle={4}
+      dataKey="value"
+    >
+      {subjectTotals.map((entry, index) => (
+        <Cell key={index} fill={entry.color} />
+      ))}
+    </Pie>
+    <Tooltip formatter={(value: number) => `${value} min`} />
+    <Legend />
+  </PieChart>
+</ResponsiveContainer>
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* ── TODAY & THIS WEEK CARDS ── */}

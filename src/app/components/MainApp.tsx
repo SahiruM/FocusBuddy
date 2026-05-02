@@ -17,10 +17,10 @@ export interface StudySession {
   taskId: string;
   duration: number;
   date: string;
-  hour?: number;       // ← add this
+  hour?: number;
+  tag: string;        // ← add this (subject name)
   createdAt?: string;
 }
-
 interface MainAppProps {
   userName: string;
   onLogout?: () => void;
@@ -30,11 +30,11 @@ interface MainAppProps {
 }
 
 export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }: MainAppProps) {
-  const [tasks, setTasks] = useState<Task[]>([
-    { id: '1', name: 'Math', color: '#9b87d6' },
-    { id: '2', name: 'Physics', color: '#a8d5ff' },
-    { id: '3', name: 'Papers', color: '#ffb3c6' },
-  ]);
+const [tasks, setTasks] = useState<Task[]>([
+  { id: '1', name: 'Biology', color: '#86efac' },
+  { id: '2', name: 'Physics', color: '#a8d5ff' },
+  { id: '3', name: 'Chemistry', color: '#fde68a' },
+]);
 
   const [activeTaskId, setActiveTaskId] = useState<string | null>('1');
   const [isStudying, setIsStudying] = useState(false);
@@ -98,6 +98,7 @@ useEffect(() => {
       return {
         taskId: data.taskId,
         duration: data.duration,
+            tag: data.tag ?? data.taskId,   // ← add this
         date: data.date, // must be "YYYY-MM-DD" string
       };
     });
@@ -175,12 +176,14 @@ useEffect(() => {
 const handleStop = async () => {
   if (isStudying && activeTaskId && elapsedTime > 0) {
     const now = new Date();
+    const activeTask = tasks.find(t => t.id === activeTaskId);
     await addDoc(collection(db, "sessions"), {
       userId,
       taskId: activeTaskId,
+      tag: activeTask?.name ?? 'Unknown',   // ← add this
       duration: elapsedTime,
-      date: now.toISOString().split('T')[0],  // "2026-05-02"
-      hour: now.getHours(),                    // 0-23 ← add this
+      date: now.toISOString().split('T')[0],
+      hour: now.getHours(),
       createdAt: now.toISOString(),
     });
   }
