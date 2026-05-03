@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
-import { doc, setDoc, getDoc, deleteDoc, addDoc, collection, onSnapshot, query, where } from "firebase/firestore";
+import {
+  doc, getDoc, deleteDoc, addDoc,
+  collection,
+} from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { Timer } from './Timer';
 import { TaskList } from './TaskList';
 import { StatsSection } from './StatsSection';
 import { Header } from './Header';
 import { CountdownTimer } from './CountdownTimer';
-import { motion } from 'motion/react';
-import { Play, Square, Pause } from 'lucide-react';
+import { Cloud, CloudOff, RefreshCw } from 'lucide-react';
+import { Network } from '@capacitor/network';
 
 export interface Task {
   id: string;
@@ -16,11 +19,13 @@ export interface Task {
 }
 
 export interface StudySession {
+  id?: string;
   taskId: string;
   duration: number;
   date: string;
   hour?: number;
-  createdAt?: string;
+  createdAt: string;
+  synced: boolean;
 }
 
 interface MainAppProps {
@@ -30,6 +35,10 @@ interface MainAppProps {
   isLoggedIn?: boolean;
   userId: string;
 }
+
+// Detect platform once at module level
+// Electron injects "Electron" into the user agent string
+const isElectron = navigator.userAgent.toLowerCase().includes('electron');
 
 export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }: MainAppProps) {
   const [tasks, setTasks] = useState<Task[]>([
@@ -44,68 +53,115 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
   const [elapsedTime, setElapsedTime] = useState(0);
   const [studySessions, setStudySessions] = useState<StudySession[]>([]);
   const [showCountdown, setShowCountdown] = useState(false);
-  const [timerLoaded, setTimerLoaded] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isOnline, setIsOnline] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const startTimeRef = useRef<number | null>(null);
   const elapsedBeforePauseRef = useRef<number>(0);
+  const timerLoaded = useRef(false);
 
-  // ─── LOAD TIMER STATE ─────────────────────────────────────────────
+  // ==================== NETWORK DETECTION ====================
+  // Electron (Windows) → standard browser events
+  // Capacitor (Android) → native Network plugin
+  useEffect(() => {
+    if (isElectron) {
+      // ── Windows ─────────────────────────────────────────
+      setIsOnline(navigator.onLine);
+
+      const handleOnline = () => {
+        setIsOnline(true);
+        syncPendingSessions();
+      };
+      const handleOffline = () => setIsOnline(false);
+
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    } else {
+      // ── Android ──────────────────────────────────────────
+      Network.getStatus().then(status => {
+        setIsOnline(status.connected);
+        if (status.connected) syncPendingSessions();
+      });
+
+      const listenerPromise = Network.addListener('networkStatusChange', status => {
+        setIsOnline(status.connected);
+        if (status.connected) syncPendingSessions();
+      });
+
+      return () => {
+        listenerPromise.then(l => l.remove());
+      };
+    }
+  }, []);
+
+  // ==================== LOAD DATA ====================
   useEffect(() => {
     if (!userId) return;
+    loadTimerState();
+    loadSessions();
+  }, [userId]);
 
-    const loadTimer = async () => {
-      const snap = await getDoc(doc(db, "timers", userId));
-      if (!snap.exists()) {
-        setTimerLoaded(true);
-        return;
+  const loadTimerState = async () => {
+    const online = isElectron
+      ? navigator.onLine
+      : (await Network.getStatus()).connected;
+
+    if (online) {
+      try {
+        const snap = await getDoc(doc(db, "timers", userId));
+        if (snap.exists()) {
+          const data = snap.data();
+          setActiveTaskId(data.taskId || '1');
+          setIsStudying(data.isRunning || false);
+          setIsPaused(data.isPaused || false);
+
+          if (data.isPaused) {
+            elapsedBeforePauseRef.current = data.elapsedBeforePause || 0;
+            setElapsedTime(data.elapsedBeforePause || 0);
+          } else if (data.isRunning && data.startTime) {
+            const now = Date.now();
+            const elapsed = (data.elapsedBeforePause || 0) + Math.floor((now - data.startTime) / 1000);
+            elapsedBeforePauseRef.current = data.elapsedBeforePause || 0;
+            startTimeRef.current = data.startTime;
+            setElapsedTime(elapsed);
+          }
+          timerLoaded.current = true;
+          return;
+        }
+      } catch (e) {
+        console.warn("Firebase timer load failed, falling back to localStorage");
       }
+    }
 
-      const data = snap.data();
+    // Fallback — always works offline on both platforms
+    const local = localStorage.getItem(`timer_${userId}`);
+    if (local) {
+      const data = JSON.parse(local);
       setActiveTaskId(data.taskId || '1');
       setIsStudying(data.isRunning || false);
       setIsPaused(data.isPaused || false);
+      setElapsedTime(data.elapsedTime || 0);
+      elapsedBeforePauseRef.current = data.elapsedBeforePause || 0;
+      startTimeRef.current = data.startTime || null;
+    }
+    timerLoaded.current = true;
+  };
 
-      if (data.isPaused) {
-        elapsedBeforePauseRef.current = data.elapsedBeforePause || 0;
-        setElapsedTime(data.elapsedBeforePause || 0);
-      } else if (data.isRunning && data.startTime) {
-        const now = Date.now();
-        const elapsed = (data.elapsedBeforePause || 0) + Math.floor((now - data.startTime) / 1000);
-        elapsedBeforePauseRef.current = data.elapsedBeforePause || 0;
-        startTimeRef.current = data.startTime;
-        setElapsedTime(elapsed);
-      }
+  const loadSessions = () => {
+    const saved = localStorage.getItem(`sessions_${userId}`);
+    if (saved) setStudySessions(JSON.parse(saved));
+  };
 
-      setTimerLoaded(true);
-    };
-
-    loadTimer();
-  }, [userId]);
-
-  // ─── LOAD SESSIONS ───────────────────────────────────────────────
+  // ==================== TIMER TICK ====================
   useEffect(() => {
-    if (!userId) return;
-
-    const q = query(collection(db, "sessions"), where("userId", "==", userId));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const sessions: StudySession[] = snapshot.docs.map(d => ({
-        taskId: d.data().taskId,
-        duration: d.data().duration,
-        date: d.data().date,
-        hour: d.data().hour,
-        createdAt: d.data().createdAt,
-      }));
-      setStudySessions(sessions);
-    });
-
-    return () => unsubscribe();
-  }, [userId]);
-
-  // ─── LOCAL TIMER ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (!timerLoaded) return;
-    let interval: NodeJS.Timeout | undefined;
+    if (!timerLoaded.current) return;
+    let interval: ReturnType<typeof setInterval> | undefined;
 
     if (isStudying && !isPaused) {
       interval = setInterval(() => {
@@ -113,70 +169,94 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
       }, 1000);
     }
 
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isStudying, isPaused, timerLoaded]);
+    return () => clearInterval(interval);
+  }, [isStudying, isPaused]);
 
-  // ─── AUTO SYNC TO FIREBASE ───────────────────────────────────────
+  // ==================== AUTO SAVE TO LOCALSTORAGE ====================
+  // Runs on every state change — always works offline
   useEffect(() => {
-    if (!userId || !timerLoaded) return;
+    if (!userId || !timerLoaded.current) return;
 
-    const saveTimerState = async () => {
-      if (!activeTaskId) return;
+    const timerData = {
+      taskId: activeTaskId,
+      isRunning: isStudying,
+      isPaused,
+      elapsedTime,
+      elapsedBeforePause: isPaused ? elapsedTime : elapsedBeforePauseRef.current,
+      startTime: startTimeRef.current,
+    };
 
-      const timerData: any = {
-        taskId: activeTaskId,
-        isRunning: isStudying,
-        isPaused: isPaused,
-        elapsedBeforePause: isPaused ? elapsedTime : elapsedBeforePauseRef.current,
-      };
+    localStorage.setItem(`timer_${userId}`, JSON.stringify(timerData));
+  }, [userId, activeTaskId, isStudying, isPaused, elapsedTime]);
 
-      if (isStudying && !isPaused && startTimeRef.current) {
-        timerData.startTime = startTimeRef.current;
-      } else {
-        timerData.startTime = null;
-      }
+  // ==================== SYNC PENDING SESSIONS ====================
+  // Fires automatically when internet returns on either platform
+  const syncPendingSessions = async () => {
+    const saved = localStorage.getItem(`sessions_${userId}`);
+    if (!saved) return;
 
+    const sessions: StudySession[] = JSON.parse(saved);
+    const pending = sessions.filter(s => !s.synced);
+    if (pending.length === 0) return;
+
+    setIsSyncing(true);
+    const updated = [...sessions];
+
+    for (const session of pending) {
       try {
-        await setDoc(doc(db, "timers", userId), timerData);
-      } catch (error) {
-        console.error("Failed to save timer state:", error);
+        await addDoc(collection(db, "sessions"), { userId, ...session });
+        const idx = updated.findIndex(s => s.createdAt === session.createdAt);
+        if (idx !== -1) updated[idx] = { ...updated[idx], synced: true };
+      } catch (e) {
+        console.error("Sync failed for session:", session.createdAt, e);
       }
-    };
+    }
 
-    const timeout = setTimeout(saveTimerState, 400);
-    return () => clearTimeout(timeout);
-  }, [userId, timerLoaded, activeTaskId, isStudying, isPaused, elapsedTime]);
+    setStudySessions(updated);
+    localStorage.setItem(`sessions_${userId}`, JSON.stringify(updated));
+    setIsSyncing(false);
+  };
 
-  // ─── FULLSCREEN LISTENER ───────────────────────────────────────
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) {
-        setIsFullScreen(false);
-      }
-    };
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
-
-  // ─── SAVE SESSION ───────────────────────────────────────────────
+  // ==================== SAVE SESSION ====================
   const saveCurrentSession = async (taskId: string, duration: number) => {
     if (duration <= 0) return;
 
+    const online = isElectron
+      ? navigator.onLine
+      : (await Network.getStatus()).connected;
+
     const now = new Date();
-    await addDoc(collection(db, "sessions"), {
-      userId,
+    const newSession: StudySession = {
       taskId,
       duration,
       date: now.toISOString().split('T')[0],
       hour: now.getHours(),
       createdAt: now.toISOString(),
-    });
+      synced: online,
+    };
+
+    // Always save locally first — instant, works offline
+    const updated = [...studySessions, newSession];
+    setStudySessions(updated);
+    localStorage.setItem(`sessions_${userId}`, JSON.stringify(updated));
+
+    // Try Firebase if online
+    if (online) {
+      try {
+        await addDoc(collection(db, "sessions"), { userId, ...newSession });
+      } catch (e) {
+        // Mark unsynced — will retry automatically when back online
+        const retry = updated.map(s =>
+          s.createdAt === newSession.createdAt ? { ...s, synced: false } : s
+        );
+        setStudySessions(retry);
+        localStorage.setItem(`sessions_${userId}`, JSON.stringify(retry));
+        console.error("Firebase save failed, queued for retry");
+      }
+    }
   };
 
-  // ─── HANDLE TASK CHANGE ──────────────────────────────────────────
+  // ==================== TIMER CONTROLS ====================
   const handleSelectTask = async (newTaskId: string) => {
     if (newTaskId === activeTaskId) return;
 
@@ -189,14 +269,11 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
     elapsedBeforePauseRef.current = 0;
     startTimeRef.current = wasStudying ? Date.now() : null;
     setActiveTaskId(newTaskId);
-
     if (wasStudying) setIsPaused(false);
   };
 
-  // ─── TIMER CONTROLS ──────────────────────────────────────────────
   const handleStart = () => {
-    const now = Date.now();
-    startTimeRef.current = now;
+    startTimeRef.current = Date.now();
     elapsedBeforePauseRef.current = 0;
     setIsStudying(true);
     setIsPaused(false);
@@ -217,7 +294,17 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
     if (isStudying && activeTaskId && elapsedTime > 0) {
       await saveCurrentSession(activeTaskId, elapsedTime);
     }
-    await deleteDoc(doc(db, "timers", userId));
+
+    const online = isElectron
+      ? navigator.onLine
+      : (await Network.getStatus()).connected;
+
+    if (online) {
+      try {
+        await deleteDoc(doc(db, "timers", userId));
+      } catch (e) {}
+    }
+
     startTimeRef.current = null;
     elapsedBeforePauseRef.current = 0;
     setIsStudying(false);
@@ -225,22 +312,31 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
     setElapsedTime(0);
   };
 
-  // ─── FULL SCREEN TOGGLE ──────────────────────────────────────────
+  // ==================== FULLSCREEN ====================
+  // try/catch because Android WebView may not support the fullscreen API
   const toggleFullScreenTimer = async () => {
-    if (!document.fullscreenElement) {
-      try {
-        setIsFullScreen(true);
+    try {
+      if (!document.fullscreenElement) {
         await document.documentElement.requestFullscreen();
-      } catch (err) {
-        console.error("Fullscreen failed", err);
+        setIsFullScreen(true);
+      } else {
+        await document.exitFullscreen();
+        setIsFullScreen(false);
       }
-    } else {
-      await document.exitFullscreen();
-      setIsFullScreen(false);
+    } catch (e) {
+      setIsFullScreen(prev => !prev);
     }
   };
 
-  // ─── TASK MANAGEMENT ─────────────────────────────────────────────
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) setIsFullScreen(false);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  // ==================== TASK MANAGEMENT ====================
   const handleAddTask = (taskName: string) => {
     const colors = ['#9b87d6', '#a8d5ff', '#ffb3c6', '#b8e6d5', '#ffd4e5'];
     const newTask: Task = {
@@ -260,153 +356,60 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
 
   const activeTask = tasks.find(t => t.id === activeTaskId);
 
-  if (!timerLoaded) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <p className="text-muted-foreground">Loading your session... 💫</p>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background relative">
-      <Header onLogout={onLogout} onShowLogin={onShowLogin} userName={userName} isLoggedIn={isLoggedIn} />
+      <Header
+        onLogout={onLogout}
+        onShowLogin={onShowLogin}
+        userName={userName}
+        isLoggedIn={isLoggedIn}
+      />
 
-{/* ==================== FULL SCREEN TIMER ==================== */}
-{isFullScreen && (
-  <div className="fixed inset-0 z-[100] bg-zinc-950 flex items-center justify-center">
-
-    {/* BACKDROP GLOW (THEME BASED) */}
-    <div
-      className="absolute inset-0 opacity-40 blur-3xl"
-      style={{
-        background: activeTask?.color
-          ? `radial-gradient(circle at 50% 40%, ${activeTask.color}55 0%, transparent 65%)`
-          : 'radial-gradient(circle at 50% 40%, rgba(255,255,255,0.08), transparent 65%)',
-      }}
-    />
-
-    {/* 🛑 MOBILE SAFE EXIT (always visible + thumb reachable) */}
-    <button
-      onClick={toggleFullScreenTimer}
-      className="fixed top-4 right-4 z-[120] px-4 py-2 rounded-xl bg-black/50 backdrop-blur border border-white/10 text-white text-sm active:scale-95"
-    >
-      Exit
-    </button>
-{/* AESTHETIC BACKGROUND LAYERS */}
-<div className="absolute inset-0 overflow-hidden">
-
-  {/* Floating gradient blobs */}
-  <div className="absolute -top-32 -left-32 w-[400px] h-[400px] rounded-full blur-3xl opacity-30 animate-float-slow"
-    style={{ background: activeTask?.color || '#a8d5ff' }}
-  />
-
-  <div className="absolute top-1/2 -right-40 w-[500px] h-[500px] rounded-full blur-3xl opacity-20 animate-float-medium"
-    style={{ background: '#ffb3c6' }}
-  />
-
-  <div className="absolute bottom-[-200px] left-1/3 w-[450px] h-[450px] rounded-full blur-3xl opacity-20 animate-float-slow"
-    style={{ background: '#b8e6d5' }}
-  />
-
-  {/* Soft noise overlay */}
-  <div className="absolute inset-0 opacity-[0.03] mix-blend-overlay bg-[url('/noise.png')]" />
-</div>
-    {/* MAIN TIMER CARD */}
-    <div className="relative w-full max-w-3xl mx-4 text-center">
-
-      {/* TASK LABEL */}
-      {activeTask && (
-        <div className="mb-6 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur">
-          <div
-            className="w-3 h-3 rounded-full"
-            style={{ backgroundColor: activeTask.color }}
-          />
-          <span className="text-white/80 text-sm sm:text-base">
-            {activeTask.name}
-          </span>
-        </div>
-      )}
-
-      {/* TIMER DISPLAY */}
-      <div className="font-mono font-bold text-white tabular-nums leading-none
-        text-[64px] sm:text-[120px] md:text-[150px]">
-
-        {Math.floor(elapsedTime / 3600).toString().padStart(2, '0')}:
-        {Math.floor((elapsedTime % 3600) / 60).toString().padStart(2, '0')}:
-        {(elapsedTime % 60).toString().padStart(2, '0')}
-      </div>
-
-      {/* STATUS */}
-      <div className="mt-6 flex items-center justify-center gap-2 text-white/60">
-        <div
-          className={`w-2.5 h-2.5 rounded-full ${
-            isStudying && !isPaused ? 'animate-pulse' : ''
-          }`}
-          style={{
-            backgroundColor:
-              isStudying && !isPaused
-                ? activeTask?.color || '#fff'
-                : '#777',
-          }}
-        />
-        <span className="text-sm sm:text-base">
-          {isStudying ? (isPaused ? 'Paused' : 'Focused') : 'Ready'}
-        </span>
-      </div>
-
-      {/* CONTROLS */}
-      <div className="mt-10 flex flex-wrap justify-center gap-3">
-
-        {!isStudying ? (
-          <button
-            onClick={handleStart}
-            className="px-7 py-3 rounded-2xl text-white font-medium active:scale-95 shadow-lg"
-            style={{ background: activeTask?.color || '#22c55e' }}
-          >
-            Start
-          </button>
+      {/* Connection Status Badge — shows Online/Offline + spinning sync icon */}
+      <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 bg-zinc-900/95 backdrop-blur-md border border-white/10 px-4 py-2 rounded-2xl text-sm shadow-lg">
+        {isOnline ? (
+          <div className="flex items-center gap-2 text-emerald-400">
+            <Cloud className="w-4 h-4" />
+            Online
+            {isSyncing && <RefreshCw className="w-4 h-4 animate-spin" />}
+          </div>
         ) : (
-          <>
-            {isPaused ? (
-              <button
-                onClick={handleResume}
-                className="px-7 py-3 rounded-2xl text-white font-medium active:scale-95"
-                style={{ background: activeTask?.color || '#22c55e' }}
-              >
-                Resume
-              </button>
-            ) : (
-              <button
-                onClick={handlePause}
-                className="px-7 py-3 rounded-2xl text-white font-medium active:scale-95 bg-yellow-500"
-              >
-                Pause
-              </button>
-            )}
-
-            <button
-              onClick={handleStop}
-              className="px-7 py-3 rounded-2xl text-white font-medium active:scale-95 bg-red-500"
-            >
-              Stop & Save
-            </button>
-          </>
+          <div className="flex items-center gap-2 text-amber-400">
+            <CloudOff className="w-4 h-4" />
+            Offline • Saved locally
+          </div>
         )}
       </div>
 
-      {/* 🧠 MOBILE SAFETY HINT (VERY IMPORTANT UX FIX) */}
-      <div className="mt-8 text-white/30 text-xs sm:text-sm">
-        Tip: tap “Exit” anytime to leave focus mode
-      </div>
-    </div>
-  </div>
-)}
+      {/* Fullscreen Timer Overlay */}
+      {isFullScreen && (
+        <div className="fixed inset-0 z-[100] bg-zinc-950 flex items-center justify-center">
+          <button
+            onClick={toggleFullScreenTimer}
+            className="fixed top-4 right-4 z-[120] px-6 py-3 rounded-xl bg-black/70 backdrop-blur border border-white/20 text-white"
+          >
+            Exit Fullscreen
+          </button>
+          <Timer
+            activeTask={activeTask}
+            isStudying={isStudying}
+            isPaused={isPaused}
+            elapsedTime={elapsedTime}
+            onStart={handleStart}
+            onPause={handlePause}
+            onResume={handleResume}
+            onStop={handleStop}
+            onFullScreen={toggleFullScreenTimer}
+          />
+        </div>
+      )}
 
-      {/* ==================== NORMAL APP ==================== */}
-      <div className="container mx-auto px-4 sm:px-6 py-4 sm:py-6 max-w-7xl relative z-10">
-        <div className="grid lg:grid-cols-[280px_1fr] xl:grid-cols-[320px_1fr] gap-4 sm:gap-6">
-          <div className="space-y-4 sm:space-y-6 lg:order-1 order-2">
+      {/* Main Layout */}
+      <div className="container mx-auto px-4 sm:px-6 py-6 max-w-7xl">
+        <div className="grid lg:grid-cols-[280px_1fr] xl:grid-cols-[320px_1fr] gap-6">
+
+          {/* Left Column — Tasks + Countdown */}
+          <div className="space-y-6 lg:order-1 order-2">
             <TaskList
               tasks={tasks}
               activeTaskId={activeTaskId}
@@ -418,7 +421,7 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
             <div className="lg:hidden">
               <button
                 onClick={() => setShowCountdown(!showCountdown)}
-                className="w-full px-4 py-3 rounded-2xl border border-border bg-card hover:bg-accent transition-colors active:scale-95"
+                className="w-full px-4 py-3 rounded-2xl border border-border bg-card hover:bg-accent transition-colors"
               >
                 {showCountdown ? 'Hide' : 'Show'} Countdown Timer
               </button>
@@ -427,7 +430,8 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
             {(showCountdown || window.innerWidth >= 1024) && <CountdownTimer />}
           </div>
 
-          <div className="space-y-4 sm:space-y-6 lg:order-2 order-1">
+          {/* Right Column — Timer + Stats */}
+          <div className="space-y-6 lg:order-2 order-1">
             <Timer
               activeTask={activeTask}
               isStudying={isStudying}
@@ -439,9 +443,9 @@ export function MainApp({ userName, onLogout, onShowLogin, isLoggedIn, userId }:
               onStop={handleStop}
               onFullScreen={toggleFullScreenTimer}
             />
-
             <StatsSection studySessions={studySessions} tasks={tasks} />
           </div>
+
         </div>
       </div>
     </div>

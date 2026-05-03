@@ -15,10 +15,27 @@ export function TaskList({ tasks, activeTaskId, onSelectTask, onAddTask, onDelet
   const [isAdding, setIsAdding] = useState(false);
   const [newTaskName, setNewTaskName] = useState('');
 
+  // Using a form submit handler compatible with both web + Capacitor WebView + Electron
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (newTaskName.trim()) {
       onAddTask(newTaskName.trim());
+      setNewTaskName('');
+      setIsAdding(false);
+    }
+  };
+
+  // Also handle Enter key directly on input (more reliable on mobile)
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (newTaskName.trim()) {
+        onAddTask(newTaskName.trim());
+        setNewTaskName('');
+        setIsAdding(false);
+      }
+    }
+    if (e.key === 'Escape') {
       setNewTaskName('');
       setIsAdding(false);
     }
@@ -56,6 +73,7 @@ export function TaskList({ tasks, activeTaskId, onSelectTask, onAddTask, onDelet
                     onDeleteTask(task.id);
                   }}
                   className="opacity-0 group-hover:opacity-100 sm:transition-opacity p-1.5 sm:p-1 hover:bg-destructive/20 rounded-lg touch-manipulation sm:opacity-0 opacity-60"
+                  aria-label={`Delete ${task.name}`}
                 >
                   <Trash2 className="w-4 h-4 text-destructive" />
                 </button>
@@ -75,11 +93,15 @@ export function TaskList({ tasks, activeTaskId, onSelectTask, onAddTask, onDelet
               type="text"
               value={newTaskName}
               onChange={(e) => setNewTaskName(e.target.value)}
+              onKeyDown={handleKeyDown}
               placeholder="New task..."
               autoFocus
               className="w-full bg-transparent outline-none text-foreground placeholder:text-muted-foreground"
               onBlur={() => {
-                if (!newTaskName.trim()) setIsAdding(false);
+                // Small delay so submit can fire before blur closes input
+                setTimeout(() => {
+                  if (!newTaskName.trim()) setIsAdding(false);
+                }, 150);
               }}
             />
           </motion.form>
