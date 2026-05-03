@@ -1,4 +1,4 @@
-import { Play, Square, Pause, Maximize2, Minimize2 } from 'lucide-react';
+import { Play, Square, Pause, Maximize2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { Task } from './MainApp';
 
@@ -14,16 +14,16 @@ interface TimerProps {
   onFullScreen: () => void;
 }
 
-export function Timer({
-  activeTask,
-  isStudying,
-  isPaused,
-  elapsedTime,
-  onStart,
-  onPause,
-  onResume,
+export function Timer({ 
+  activeTask, 
+  isStudying, 
+  isPaused, 
+  elapsedTime, 
+  onStart, 
+  onPause, 
+  onResume, 
   onStop,
-  onFullScreen,
+  onFullScreen 
 }: TimerProps) {
 
   const formatTime = (seconds: number) => {
@@ -32,10 +32,6 @@ export function Timer({
     const secs = seconds % 60;
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-
-  // Detect if we're currently in fullscreen
-  // Works on both Electron (document.fullscreenElement) and Android (falls back gracefully)
-  const isCurrentlyFullscreen = !!document.fullscreenElement;
 
   return (
     <motion.div
@@ -51,20 +47,15 @@ export function Timer({
             : 'var(--card)',
         }}
       >
-        {/* Fullscreen Toggle Button - Top Left */}
-        {/* Uses try/catch in parent so safe on Android + Windows both */}
+        {/* Small Full Screen Button - Top Left */}
         <button
           onClick={onFullScreen}
           className="absolute top-6 left-6 z-20 p-3 rounded-xl bg-background/80 hover:bg-background border border-border text-muted-foreground hover:text-foreground transition-all hover:scale-110 active:scale-95"
-          title={isCurrentlyFullscreen ? 'Exit Fullscreen' : 'Fullscreen Timer'}
+          title="Full Screen Timer"
         >
-          {isCurrentlyFullscreen
-            ? <Minimize2 className="w-5 h-5" />
-            : <Maximize2 className="w-5 h-5" />
-          }
+          <Maximize2 className="w-5 h-5" />
         </button>
 
-        {/* Animated glow when studying */}
         {isStudying && (
           <motion.div
             className="absolute inset-0 rounded-3xl"
@@ -106,13 +97,7 @@ export function Timer({
                 className={`w-2 h-2 rounded-full transition-all ${
                   isStudying && !isPaused ? 'animate-pulse' : ''
                 }`}
-                style={{
-                  backgroundColor: isStudying && !isPaused
-                    ? 'var(--soft-green)'
-                    : isPaused
-                    ? 'var(--chart-4)'
-                    : 'var(--muted-foreground)',
-                }}
+                style={{ backgroundColor: isStudying && !isPaused ? 'var(--soft-green)' : isPaused ? 'var(--chart-4)' : 'var(--muted-foreground)' }}
               />
               <span className="text-sm text-muted-foreground">
                 {isStudying ? (isPaused ? 'Paused' : 'Studying') : 'Ready'}
@@ -120,8 +105,7 @@ export function Timer({
             </div>
           </div>
 
-          {/* Timer Control Buttons */}
-          <div className="flex gap-2 sm:gap-3 justify-center flex-wrap">
+          <div className="flex gap-2 sm:gap-3 justify-center">
             {!isStudying ? (
               <motion.button
                 whileHover={{ scale: 1.05 }}

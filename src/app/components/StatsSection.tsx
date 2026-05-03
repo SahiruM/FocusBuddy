@@ -27,11 +27,13 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
 
   const today = new Date().toISOString().split('T')[0];
 
-  // ── MONDAY-BASED WEEK ──────────────────────────────────
+  // ✅ MONDAY-BASED WEEK
   const getMondayWeek = () => {
     const today = new Date();
     const day = today.getDay(); // 0 = Sunday
+
     const diff = day === 0 ? -6 : 1 - day;
+
     const monday = new Date(today);
     monday.setDate(today.getDate() + diff);
 
@@ -50,7 +52,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     return date.toISOString().split('T')[0];
   });
 
-  // ── FORMAT ─────────────────────────────────────────────
+  // ── FORMAT ─────────────────────────────
   const formatDuration = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -61,7 +63,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     return `${secs}s`;
   };
 
-  // ── TOTALS ─────────────────────────────────────────────
+  // ── TOTALS ─────────────────────────────
   const dailyTime = studySessions
     .filter(s => s.date === today)
     .reduce((acc, s) => acc + s.duration, 0);
@@ -70,7 +72,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     .filter(s => weekDays.includes(s.date))
     .reduce((acc, s) => acc + s.duration, 0);
 
-  // ── CHART DATA ─────────────────────────────────────────
+  // ── CHART DATA ─────────────────────────
   const hourlyData = Array.from({ length: 24 }, (_, hour) => {
     const total = studySessions
       .filter(s => s.date === today && (s.hour ?? 0) === hour)
@@ -82,8 +84,9 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     const total = studySessions
       .filter(s => s.date === date)
       .reduce((acc, s) => acc + s.duration, 0);
+
     return {
-      name: new Date(date).toLocaleDateString('en-GB', { weekday: 'short' }),
+      name: new Date(date).toLocaleDateString('en-GB', { weekday: 'short' }), // Mon-first style
       minutes: Math.round(total / 60),
     };
   });
@@ -92,13 +95,14 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     const total = studySessions
       .filter(s => s.date === date)
       .reduce((acc, s) => acc + s.duration, 0);
+
     return {
       name: new Date(date).getDate().toString(),
       minutes: Math.round(total / 60),
     };
   });
 
-  // ── PIE DATA ───────────────────────────────────────────
+  // ── PIE DATA ───────────────────────────
   const pieData = tasks.map(task => {
     let filtered = studySessions;
 
@@ -111,6 +115,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
     }
 
     const totalSeconds = filtered.reduce((acc, s) => acc + s.duration, 0);
+
     return {
       name: task.name,
       seconds: totalSeconds,
@@ -132,7 +137,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
   return (
     <div className="space-y-6">
 
-      {/* Summary Cards */}
+      {/* Cards */}
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="bg-card border border-border rounded-3xl p-6">
           <div className="flex items-center gap-3 mb-3">
@@ -151,7 +156,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
         </div>
       </div>
 
-      {/* Progress Chart */}
+      {/* Charts */}
       <div className="bg-card border border-border rounded-3xl p-6">
         <h4 className="text-xl mb-4">Study Progress</h4>
 
@@ -202,7 +207,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
         </div>
       </div>
 
-      {/* Time Per Subject Pie */}
+      {/* Pie */}
       <div className="bg-card border border-border rounded-3xl p-6">
         <h4 className="text-xl mb-4">Time per Subject</h4>
 
@@ -234,7 +239,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
                       <Cell key={idx} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip
+                  <Tooltip 
                     contentStyle={tooltipStyle}
                     formatter={(value: number) => [formatDuration(value), 'Study Time']}
                   />
@@ -244,7 +249,7 @@ export function StatsSection({ studySessions, tasks }: StatsSectionProps) {
 
             <div className="space-y-4">
               {pieData.map(subject => {
-                const percent = totalStudySeconds > 0
+                const percent = totalStudySeconds > 0 
                   ? Math.round((subject.seconds / totalStudySeconds) * 100)
                   : 0;
 
